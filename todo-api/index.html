@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>To-Do List API</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background: #f9f9f9;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 4px;
+            font-weight: bold;
+        }
+
+        input,
+        textarea,
+        select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button.delete {
+            background: #dc3545;
+        }
+
+        button.delete:hover {
+            background: #c82333;
+        }
+
+        .task {
+            background: white;
+            padding: 16px;
+            margin-bottom: 12px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .task h3 {
+            margin: 0 0 8px;
+            color: #222;
+        }
+
+        .task p {
+            margin: 4px 0;
+            color: #555;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: bold;
+            color: white;
+        }
+
+        .pending {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .in_progress {
+            background: #17a2b8;
+        }
+
+        .completed {
+            background: #28a745;
+        }
+
+        pre {
+            background: #eee;
+            padding: 12px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Мои задачи</h1>
+
+    <!-- Форма создания -->
+    <div class="form-group">
+        <label for="title">Название задачи</label>
+        <input type="text" id="title" placeholder="Что нужно сделать?" />
+    </div>
+    <div class="form-group">
+        <label for="description">Описание (опционально)</label>
+        <textarea id="description" rows="2" placeholder="Детали..."></textarea>
+    </div>
+    <div class="form-group">
+        <label for="status">Статус</label>
+        <select id="status">
+            <option value="pending">В ожидании</option>
+            <option value="in_progress">В работе</option>
+            <option value="completed">Выполнено</option>
+        </select>
+    </div>
+    <button id="createBtn">➕ Добавить задачу</button>
+    <hr style="margin: 30px 0;" />
+
+    <!-- Список задач -->
+    <div id="tasksList">
+        <p>Загрузка задач...</p>
+    </div>
+
+    <script>
+        const API_BASE = './tasks'; 
+
+        // Вспомогательная функция для запросов
+        async function apiRequest(url, options = {}) {
+            const defaultHeaders = {
+                'Content-Type': 'application/json'
+            };
+
+            const config = {
+                ...options,
+                headers: {
+                    ...defaultHeaders,
+                    ...(options.headers || {})
+                }
+            };
+
+            try {
+                const response = await fetch(url, config);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                return await response.json();
+            } catch (err) {
+                alert('Ошибка API:\n' + err.message);
+                console.error(err);
+                throw err;
+            }
+        }
+
+        // Загрузка задач
+        async function loadTasks() {
+            const listEl = document.getElementById('tasksList');
+            try {
+                const tasks = await apiRequest(API_BASE);
+                if (tasks.length === 0) {
+                    listEl.innerHTML = '<p>Список задач пуст.</p>';
+                    return;
+                }
+
+                listEl.innerHTML = tasks.map(task => `
+        <div class="task" data-id="${task.id}">
+          <h3>${task.title}</h3>
+          <p><strong>Описание:</strong> ${task.description || '—'}</p>
+          <p>
+            <strong>Статус:</strong>
+            <span class="status ${task.status}">${getStatusLabel(task.status)}</span>
+          </p>
+          <p><small>Создано: ${new Date(task.created_at).toLocaleString()}</small></p>
+          <button onclick="updateTask(${task.id})">✏️ Изменить статус</button>
+          <button class="delete" onclick="deleteTask(${task.id})">❌ Удалить</button>
+        </div>
+      `).join('');
+            } catch (e) {
+                listEl.innerHTML = '<p>Не удалось загрузить задачи.</p>';
+            }
+        }
+
+        function getStatusLabel(status) {
+            const labels = {
+                pending: 'В ожидании',
+                in_progress: 'В работе',
+                completed: 'Выполнено'
+            };
+            return labels[status] || status;
+        }
+
+        // Создание задачи
+        document.getElementById('createBtn').addEventListener('click', async () => {
+            const title = document.getElementById('title').value.trim();
+            const description = document.getElementById('description').value.trim() || null;
+            const status = document.getElementById('status').value;
+
+            if (!title) {
+                alert('Название задачи обязательно!');
+                return;
+            }
+
+            try {
+                await apiRequest(API_BASE, {
+                    method: 'POST',
+                    body: JSON.stringify({ title, description, status })
+                });
+                // Очистить форму
+                document.getElementById('title').value = '';
+                document.getElementById('description').value = '';
+                document.getElementById('status').value = 'pending';
+                loadTasks(); // обновить список
+            } catch (e) {
+                // Ошибка уже показана в apiRequest
+            }
+        });
+
+        // Глобальные функции для кнопок
+        window.updateTask = async (id) => {
+            const newStatus = prompt(
+                'Введите новый статус:\npending, in_progress, completed',
+                'in_progress'
+            );
+            if (!newStatus || !['pending', 'in_progress', 'completed'].includes(newStatus)) {
+                return;
+            }
+            try {
+                await apiRequest(`${API_BASE}/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ status: newStatus })
+                });
+                loadTasks();
+            } catch (e) {
+                // Ошибка уже показана
+            }
+        };
+
+        window.deleteTask = async (id) => {
+            if (!confirm('Удалить задачу?')) return;
+            try {
+                await apiRequest(`${API_BASE}/${id}`, { method: 'DELETE' });
+                loadTasks();
+            } catch (e) {
+                // Ошибка уже показана
+            }
+        };
+
+        // Загрузка при старте
+        loadTasks();
+    </script>
+
+</body>
+
+</html>

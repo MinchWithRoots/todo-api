@@ -1,11 +1,11 @@
 <?php
 
-// Разрешить все домены (для разработки)
+// CORS headers — для работы из браузера
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 
-// Обработка preflight-запросов (OPTIONS)
+// Обработка preflight-запросов
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit;
@@ -13,24 +13,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once 'config.php';
 
-$input = json_decode(file_get_contents('php://input'), true);
-
-// Проверка на валидный JSON
-if (json_last_error() !== JSON_ERROR_NONE) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Invalid JSON']);
-    return;
-}
-
-// Установка заголовков для JSON-ответа
 header('Content-Type: application/json; charset=utf-8');
 
-// Получение HTTP-метода и пути запроса
 $method = $_SERVER['REQUEST_METHOD'];
-// Получаем путь без query string
+
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-// Убираем базовый путь проекта (если лежит в подпапке)
+// Определяем базовый путь проекта (если лежит в подпапке)
 $scriptDir = dirname($_SERVER['SCRIPT_NAME']);
 if ($scriptDir === '/') {
     $basePath = '';
@@ -43,10 +32,20 @@ if (!empty($basePath) && strpos($path, $basePath) === 0) {
     $path = substr($path, strlen($basePath));
 }
 
+// Обработка корневого пути — открыть index.html
+if ($path === '' || $path === '/') {
+    if (file_exists('index.html')) {
+        header('Content-Type: text/html; charset=utf-8');
+        readfile('index.html');
+        exit;
+    }
+}
+
+// Разбиваем путь на части
 $parts = explode('/', trim($path, '/'));
 
 // Определяем маршрут: /tasks или /tasks/{id}
-if ($parts[0] === 'tasks') {
+if (isset($parts[0]) && $parts[0] === 'tasks') {
     if (isset($parts[1]) && is_numeric($parts[1])) {
         $taskId = (int)$parts[1];
         handleTaskById($method, $taskId);
@@ -69,12 +68,19 @@ function handleTasks($method)
             // Получить все задачи
             $stmt = $pdo->query("SELECT * FROM tasks ORDER BY created_at DESC");
             $tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            echo json_encode($tasks);
+            echo json_encode($tasks, JSON_UNESCAPED_UNICODE); // ← чтобы русские буквы не экранировались
             break;
 
         case 'POST':
             // Создать новую задачу
             $input = json_decode(file_get_contents('php://input'), true);
+
+            // Проверка на валидный JSON
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Invalid JSON']);
+                return;
+            }
 
             if (!isset($input['title']) || empty(trim($input['title']))) {
                 http_response_code(400);
@@ -86,7 +92,7 @@ function handleTasks($method)
             $description = isset($input['description']) ? $input['description'] : null;
             $status = isset($input['status']) ? $input['status'] : 'pending';
 
-            // Опциональная валидация статуса
+            // Валидация статуса
             $allowedStatuses = ['pending', 'in_progress', 'completed'];
             if (!in_array($status, $allowedStatuses)) {
                 http_response_code(400);
@@ -103,7 +109,7 @@ function handleTasks($method)
             $task = $stmt->fetch(PDO::FETCH_ASSOC);
 
             http_response_code(201);
-            echo json_encode($task);
+            echo json_encode($task, JSON_UNESCAPED_UNICODE);
             break;
 
         default:
@@ -130,11 +136,18 @@ function handleTaskById($method, $taskId)
 
     switch ($method) {
         case 'GET':
-            echo json_encode($task);
+            echo json_encode($task, JSON_UNESCAPED_UNICODE);
             break;
 
         case 'PUT':
             $input = json_decode(file_get_contents('php://input'), true);
+
+            // Проверка на валидный JSON
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Invalid JSON']);
+                return;
+            }
 
             $title = isset($input['title']) ? trim($input['title']) : $task['title'];
             if (empty($title)) {
@@ -154,7 +167,6 @@ function handleTaskById($method, $taskId)
                 return;
             }
 
-            // Обновляем без updated_at — MySQL сам обновит его благодаря ON UPDATE CURRENT_TIMESTAMP
             $stmt = $pdo->prepare("UPDATE tasks SET title = ?, description = ?, status = ? WHERE id = ?");
             $stmt->execute([$title, $description, $status, $taskId]);
 
@@ -163,7 +175,7 @@ function handleTaskById($method, $taskId)
             $stmt->execute([$taskId]);
             $updatedTask = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            echo json_encode($updatedTask);
+            echo json_encode($updatedTask, JSON_UNESCAPED_UNICODE);
             break;
 
         case 'DELETE':
